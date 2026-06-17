@@ -1,19 +1,33 @@
-import type { CardId, CardViewModel, GameRecipe, GameState, GameViewModel, ViewStyle } from "./types";
+import type { CardId, CardInstance, CardStackViewModel, CardViewModel, GameRecipe, GameState, GameViewModel, ViewStyle } from "./types";
 import { getCardDefinition } from "./recipe";
 
 const DEFAULT_CARD_WIDTH = 112;
-const DEFAULT_CARD_HEIGHT = 154;
+const DEFAULT_CARD_HEIGHT = 140;
+const STACK_OFFSET_X = 14;
+const STACK_OFFSET_Y = 18;
 const DEFAULT_CARD_STYLE: ViewStyle = {
   background: "#fff7dd",
   border: "#4b3825",
   text: "#2b2118",
 };
 
+interface StackLayoutItem {
+  rootId: CardId;
+  memberIds: CardId[];
+  index: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
 export function buildViewModel(state: GameState, recipe: GameRecipe): GameViewModel {
+  const stackLayout = buildStackLayout(state);
+
   const cards = Object.values(state.cards)
     .map((card): CardViewModel => {
       const definition = getCardDefinition(recipe, card.defId);
-      const position = resolveCardPosition(state, card.id);
+      const position = stackLayout.get(card.id) ?? resolveLooseCardPosition(card);
+      const stack = buildStackViewModel(card.id, position);
 
       return {
         id: card.id,
@@ -32,6 +46,7 @@ export function buildViewModel(state: GameState, recipe: GameRecipe): GameViewMo
           border: definition.presentation.border ?? DEFAULT_CARD_STYLE.border,
           text: definition.presentation.text ?? DEFAULT_CARD_STYLE.text,
         },
+        ...(stack ? { stack } : {}),
       };
     })
     .sort((a, b) => a.z - b.z || a.id.localeCompare(b.id));
@@ -60,23 +75,90 @@ export function buildViewModel(state: GameState, recipe: GameRecipe): GameViewMo
   };
 }
 
-function resolveCardPosition(state: GameState, cardId: CardId, visited = new Set<CardId>()): { x: number; y: number; z: number } {
-  const card = state.cards[cardId];
-
-  if (!card || visited.has(cardId)) {
-    return { x: 0, y: 0, z: 0 };
+function buildStackViewModel(cardId: CardId, layout: StackLayoutItem): CardStackViewModel | undefined {
+  if (layout.memberIds.length <= 1) {
+    return undefined;
   }
 
-  visited.add(cardId);
+  return {
+    rootId: layout.rootId,
+    memberIds: layout.memberIds,
+    size: layout.memberIds.length,
+    index: layout.index,
+    isRoot: cardId === layout.rootId,
+    isTop: layout.index === layout.memberIds.length - 1,
+  };
+}
 
+function buildStackLayout(state: GameState): Map<CardId, StackLayoutItem> {
+  const rootByCard = new Map<CardId, CardId>();
+  const groups = new Map<CardId, CardInstance[]>();
+
+  for (const card of Object.values(state.cards)) {
+    const rootId = findStackRootId(state, card.id);
+    rootByCard.set(card.id, rootId);
+    groups.set(rootId, [...(groups.get(rootId) ?? []), card]);
+  }
+
+  const layout = new Map<CardId, StackLayoutItem>();
+
+  for (const [rootId, members] of groups.entries()) {
+    const rootCard = state.cards[rootId];
+
+    if (!rootCard) {
+      continue;
+    }
+
+    const rootPosition = resolveLooseCardPosition(rootCard);
+    const sortedMembers = [...members].sort((a, b) => {
+      if (a.id === rootId) {
+        return -1;
+      }
+
+      if (b.id === rootId) {
+        return 1;
+      }
+
+      return a.location.z - b.location.z || a.id.localeCompare(b.id);
+    });
+    const memberIds = sortedMembers.map((member) => member.id);
+
+    sortedMembers.forEach((member, index) => {
+      layout.set(member.id, {
+        rootId,
+        memberIds,
+        index,
+        x: rootPosition.x + STACK_OFFSET_X * index,
+        y: rootPosition.y + STACK_OFFSET_Y * index,
+        z: rootPosition.z + index,
+      });
+    });
+  }
+
+  return layout;
+}
+
+function findStackRootId(state: GameState, cardId: CardId): CardId {
+  let cursor = cardId;
+  const visited = new Set<CardId>();
+
+  while (!visited.has(cursor)) {
+    visited.add(cursor);
+    const card = state.cards[cursor];
+
+    if (!card || card.location.kind !== "stack") {
+      return cursor;
+    }
+
+    cursor = card.location.parentCardId;
+  }
+
+  return cardId;
+}
+
+function resolveLooseCardPosition(card: CardInstance): { x: number; y: number; z: number } {
   if (card.location.kind === "stack") {
-    const parent = resolveCardPosition(state, card.location.parentCardId, visited);
-
-    return {
-      x: parent.x + card.location.offsetX,
-      y: parent.y + card.location.offsetY,
-      z: Math.max(parent.z + 1, card.location.z),
-    };
+    return { x: 0, y: 0, z: card.location.z };
   }
 
   return {
