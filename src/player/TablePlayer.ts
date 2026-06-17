@@ -90,6 +90,11 @@ export class TablePlayer {
     if (this.state !== previousState) {
       await this.persist(`${event.type} saved.`);
       this.render();
+      return;
+    }
+
+    if (event.type.startsWith("card.dropped_")) {
+      this.render();
     }
   }
 
