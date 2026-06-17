@@ -1,0 +1,25 @@
+{
+  "name": "warcards",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Minimal tabletop card RTS prototype: recipe + state + save + Pixi renderer.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pixi.js": "^8.9.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
