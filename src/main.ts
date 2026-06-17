@@ -4,6 +4,8 @@ import { TablePlayer } from "./player/TablePlayer";
 import { warcardsV0Recipe } from "./recipes/warcardsV0";
 import { PixiTableRenderer } from "./renderer/PixiTableRenderer";
 
+const PROTOTYPE_BUILD = "stack-modal-focus-v2";
+
 const gameRoot = getElement("game-root");
 const newGameButton = getButton("new-game");
 const continueButton = getButton("continue-game");
@@ -21,6 +23,7 @@ const player = new TablePlayer({
 });
 
 await player.mount(gameRoot);
+setStatus("Ready.");
 await refreshContinueButton();
 
 newGameButton.addEventListener("click", async () => {
@@ -47,7 +50,7 @@ async function refreshContinueButton(): Promise<void> {
 function setStatus(message: string): void {
   const state = player.getState();
   const suffix = state ? `\nCards: ${Object.keys(state.cards).length}. Updated: ${new Date(state.session.updatedAt).toLocaleTimeString()}.` : "";
-  status.textContent = `${message}${suffix}`;
+  status.textContent = `${message}\nBuild: ${PROTOTYPE_BUILD}${suffix}`;
 }
 
 function getElement(id: string): HTMLElement {
