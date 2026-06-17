@@ -1,10 +1,10 @@
 import type { CardId, CardInstance, CardStackViewModel, CardViewModel, GameRecipe, GameState, GameViewModel, ViewStyle } from "./types";
 import { getCardDefinition } from "./recipe";
 
-const DEFAULT_CARD_WIDTH = 112;
-const DEFAULT_CARD_HEIGHT = 140;
-const STACK_OFFSET_X = 14;
-const STACK_OFFSET_Y = 18;
+const DEFAULT_CARD_WIDTH = 120;
+const DEFAULT_CARD_HEIGHT = 180;
+const STACK_OFFSET_X = 15;
+const STACK_OFFSET_Y = 20;
 const DEFAULT_CARD_STYLE: ViewStyle = {
   background: "#fff7dd",
   border: "#4b3825",
