@@ -404,27 +404,24 @@ export class PixiTableRenderer implements TableRendererPort {
         x: card.x + card.width + 10,
         y: card.y + 8,
         icon: "☰",
-        title: "Раскрыть стопку",
         onDown: () => this.openStackModal(card.stack?.rootId ?? card.id),
       });
       this.drawRoundHandle({
         x: card.x + card.width + 10,
         y: card.y + 48,
         icon: "↕",
-        title: "Перетащить всю стопку",
         onDown: (event) => this.startWholeStackDrag(event, card),
       });
     }
   }
 
-  private drawRoundHandle(options: { x: number; y: number; icon: string; title: string; onDown: (event: unknown) => void }): void {
+  private drawRoundHandle(options: { x: number; y: number; icon: string; onDown: (event: unknown) => void }): void {
     const button = new Container();
     button.position.set(options.x, options.y);
     button.zIndex = 200_000;
     button.eventMode = "static";
     button.cursor = "pointer";
     button.hitArea = new Rectangle(0, 0, 34, 34);
-    button.label = options.title;
 
     const background = new Graphics();
     background.circle(17, 17, 17).fill({ color: 0xfff7dd, alpha: 0.98 }).stroke({
