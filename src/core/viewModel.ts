@@ -91,12 +91,10 @@ function buildStackViewModel(cardId: CardId, layout: StackLayoutItem): CardStack
 }
 
 function buildStackLayout(state: GameState): Map<CardId, StackLayoutItem> {
-  const rootByCard = new Map<CardId, CardId>();
   const groups = new Map<CardId, CardInstance[]>();
 
   for (const card of Object.values(state.cards)) {
     const rootId = findStackRootId(state, card.id);
-    rootByCard.set(card.id, rootId);
     groups.set(rootId, [...(groups.get(rootId) ?? []), card]);
   }
 
