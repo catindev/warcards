@@ -14,8 +14,8 @@ export const warcardsV0Recipe: GameRecipe = {
   zones: [
     {
       id: "left_zone",
-      label: "Зона стола",
-      rect: { x: 52, y: 70, width: 270, height: 860 },
+      label: "Склад",
+      rect: { x: 56, y: 724, width: 360, height: 220 },
       presentation: {
         background: "#f2dca088",
         border: "#795637",
@@ -24,8 +24,8 @@ export const warcardsV0Recipe: GameRecipe = {
     },
     {
       id: "right_zone",
-      label: "Будущая зона действий",
-      rect: { x: 1278, y: 70, width: 270, height: 860 },
+      label: "Действия",
+      rect: { x: 1184, y: 724, width: 360, height: 220 },
       presentation: {
         background: "#f2dca055",
         border: "#795637",
@@ -95,27 +95,27 @@ export const warcardsV0Recipe: GameRecipe = {
       {
         id: "king_1",
         defId: "king",
-        location: { kind: "table", x: 730, y: 420, z: 10 },
+        location: { kind: "table", x: 760, y: 410, z: 10 },
       },
       {
         id: "peasant_1",
         defId: "peasant",
-        location: { kind: "table", x: 590, y: 445, z: 11 },
+        location: { kind: "table", x: 610, y: 430, z: 11 },
       },
       {
         id: "tree_1",
         defId: "tree",
-        location: { kind: "table", x: 430, y: 245, z: 1 },
+        location: { kind: "table", x: 430, y: 280, z: 1 },
       },
       {
         id: "mine_1",
         defId: "mine",
-        location: { kind: "table", x: 430, y: 620, z: 1 },
+        location: { kind: "table", x: 430, y: 500, z: 1 },
       },
       {
         id: "sheep_1",
         defId: "sheep",
-        location: { kind: "table", x: 1020, y: 445, z: 1 },
+        location: { kind: "table", x: 1030, y: 420, z: 1 },
       },
     ],
   },
