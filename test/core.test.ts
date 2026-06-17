@@ -5,6 +5,7 @@ import {
   createInitialState,
   createSaveSnapshot,
   restoreStateFromSnapshot,
+  type GameRecipe,
 } from "../src/core";
 import { warcardsV0Recipe } from "../src/recipes/warcardsV0";
 
@@ -69,6 +70,34 @@ describe("table runtime v0", () => {
     expect(withTree.cards.tree_1.location).toMatchObject({
       kind: "stack",
       parentCardId: "king_1",
+    });
+  });
+
+  it("auto-stacks nearby identical loose cards", () => {
+    const recipe: GameRecipe = {
+      ...warcardsV0Recipe,
+      initialState: {
+        cards: [
+          ...warcardsV0Recipe.initialState.cards,
+          {
+            id: "tree_2",
+            defId: "tree",
+            location: { kind: "table", x: 700, y: 700, z: 3 },
+          },
+        ],
+      },
+    };
+    const state = createInitialState(recipe);
+    const next = applyInputEvent(state, recipe, {
+      type: "card.dropped_on_empty",
+      cardId: "tree_2",
+      x: 445,
+      y: 295,
+    });
+
+    expect(next.cards.tree_2.location).toMatchObject({
+      kind: "stack",
+      parentCardId: "tree_1",
     });
   });
 
