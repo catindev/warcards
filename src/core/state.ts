@@ -71,13 +71,19 @@ export function applyInputEvent(state: GameState, recipe: GameRecipe, event: Gam
       const source = state.cards[event.sourceCardId];
       const target = state.cards[event.targetCardId];
 
-      if (!source || !target || wouldCreateStackCycle(state, event.sourceCardId, event.targetCardId)) {
+      if (!source || !target) {
+        return state;
+      }
+
+      const targetRootId = getStackRootId(state.cards, event.targetCardId);
+
+      if (targetRootId === event.sourceCardId || wouldCreateStackCycle(state, event.sourceCardId, targetRootId)) {
         return state;
       }
 
       const location: StackLocation = {
         kind: "stack",
-        parentCardId: event.targetCardId,
+        parentCardId: targetRootId,
         offsetX: 18,
         offsetY: 22,
         z: nextTopZ(state),
@@ -146,6 +152,24 @@ function repairLocation(recipe: GameRecipe, cards: Record<CardId, CardInstance>,
   }
 
   return cloneLocation(location);
+}
+
+function getStackRootId(cards: Record<CardId, CardInstance>, cardId: CardId): CardId {
+  let cursor = cardId;
+  const visited = new Set<CardId>();
+
+  while (!visited.has(cursor)) {
+    visited.add(cursor);
+    const card = cards[cursor];
+
+    if (!card || card.location.kind !== "stack") {
+      return cursor;
+    }
+
+    cursor = card.location.parentCardId;
+  }
+
+  return cardId;
 }
 
 function wouldCreateStackCycle(state: GameState, sourceId: CardId, targetId: CardId): boolean {
