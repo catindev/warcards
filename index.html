@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Warcards</title>
+  </head>
+  <body>
+    <div id="app">
+      <aside class="shell-panel">
+        <h1>Warcards</h1>
+        <p class="muted">Table runtime v0: recipe → state → save → view model → Pixi renderer.</p>
+        <div class="actions">
+          <button id="new-game" type="button">New game</button>
+          <button id="continue-game" type="button">Continue</button>
+          <button id="delete-save" type="button" class="secondary">Delete save</button>
+        </div>
+        <div id="status" class="status">Ready.</div>
+        <details open>
+          <summary>Prototype checks</summary>
+          <ul>
+            <li>Drag a card to the table.</li>
+            <li>Drop a card on another card to stack it.</li>
+            <li>Drop a card into a zone.</li>
+            <li>Reload the page and press Continue.</li>
+          </ul>
+        </details>
+      </aside>
+      <main id="game-root" class="game-root" aria-label="Game table"></main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
