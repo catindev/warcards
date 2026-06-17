@@ -4,7 +4,7 @@ import { TablePlayer } from "./player/TablePlayer";
 import { warcardsV0Recipe } from "./recipes/warcardsV0";
 import { PixiTableRenderer } from "./renderer/PixiTableRenderer";
 
-const PROTOTYPE_BUILD = "stack-modal-focus-v2";
+const PROTOTYPE_BUILD = "card-feel-image-animations-v3";
 
 const gameRoot = getElement("game-root");
 const newGameButton = getButton("new-game");
