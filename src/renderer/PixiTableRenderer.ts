@@ -14,6 +14,7 @@ interface ActiveDrag {
   pointerStartX: number;
   pointerStartY: number;
   containers: DraggedContainer[];
+  fromModal: boolean;
 }
 
 interface ParsedColor {
@@ -25,8 +26,26 @@ interface CardRenderOptions {
   x?: number;
   y?: number;
   z?: number;
-  overlay?: boolean;
+  modal?: boolean;
   register?: boolean;
+}
+
+interface ModalStackCard {
+  card: CardViewModel;
+  container: Container;
+  startX: number;
+  startY: number;
+  targetX: number;
+  targetY: number;
+  targetRotation: number;
+  targetScale: number;
+}
+
+interface ModalStackState {
+  rootId: CardId;
+  cards: ModalStackCard[];
+  progress: number;
+  phase: "opening" | "open" | "closing";
 }
 
 export class PixiTableRenderer implements TableRendererPort {
@@ -34,13 +53,17 @@ export class PixiTableRenderer implements TableRendererPort {
   private inputHandler: (event: GameInputEvent) => void = () => undefined;
   private currentViewModel: GameViewModel | null = null;
   private activeDrag: ActiveDrag | null = null;
-  private expandedStackRootId: CardId | null = null;
+  private modalStack: ModalStackState | null = null;
+  private modalAnimationFrameId: number | null = null;
 
+  private readonly worldLayer = new Container();
   private readonly tableLayer = new Container();
   private readonly zoneLayer = new Container();
   private readonly cardLayer = new Container();
   private readonly dragLayer = new Container();
-  private readonly overlayLayer = new Container();
+  private readonly revealHandleLayer = new Container();
+  private readonly modalScrimLayer = new Container();
+  private readonly modalLayer = new Container();
   private readonly cardContainers = new Map<CardId, Container>();
 
   async mount(container: HTMLElement): Promise<void> {
@@ -67,16 +90,24 @@ export class PixiTableRenderer implements TableRendererPort {
     app.stage.on("pointerup", this.handlePointerUp);
     app.stage.on("pointerupoutside", this.handlePointerUp);
 
+    this.worldLayer.zIndex = 0;
+    this.dragLayer.zIndex = 30;
+    this.revealHandleLayer.zIndex = 35;
+    this.modalScrimLayer.zIndex = 40;
+    this.modalLayer.zIndex = 50;
+
     this.tableLayer.zIndex = 0;
     this.zoneLayer.zIndex = 10;
     this.cardLayer.zIndex = 20;
-    this.dragLayer.zIndex = 30;
-    this.overlayLayer.zIndex = 40;
+
+    this.worldLayer.sortableChildren = true;
     this.cardLayer.sortableChildren = true;
     this.dragLayer.sortableChildren = true;
-    this.overlayLayer.sortableChildren = true;
+    this.revealHandleLayer.sortableChildren = true;
+    this.modalLayer.sortableChildren = true;
 
-    app.stage.addChild(this.tableLayer, this.zoneLayer, this.cardLayer, this.dragLayer, this.overlayLayer);
+    this.worldLayer.addChild(this.tableLayer, this.zoneLayer, this.cardLayer);
+    app.stage.addChild(this.worldLayer, this.dragLayer, this.revealHandleLayer, this.modalScrimLayer, this.modalLayer);
 
     if (this.currentViewModel) {
       this.update(this.currentViewModel);
@@ -93,8 +124,8 @@ export class PixiTableRenderer implements TableRendererPort {
     this.app.renderer.resize(viewModel.table.width, viewModel.table.height);
     this.app.stage.hitArea = new Rectangle(0, 0, viewModel.table.width, viewModel.table.height);
 
-    if (this.expandedStackRootId && this.getStackMembers(viewModel, this.expandedStackRootId).length <= 1) {
-      this.expandedStackRootId = null;
+    if (this.modalStack && this.getStackMembers(viewModel, this.modalStack.rootId).length <= 1) {
+      this.clearModalStack();
     }
 
     this.cardContainers.clear();
@@ -102,12 +133,21 @@ export class PixiTableRenderer implements TableRendererPort {
     this.zoneLayer.removeChildren();
     this.cardLayer.removeChildren();
     this.dragLayer.removeChildren();
-    this.overlayLayer.removeChildren();
+    this.revealHandleLayer.removeChildren();
+    this.modalScrimLayer.removeChildren();
+    this.modalLayer.removeChildren();
 
     this.drawTable(viewModel);
     this.drawZones(viewModel.zones);
     this.drawCards(viewModel.cards);
-    this.drawExpandedStack(viewModel);
+    this.drawStackRevealHandles(viewModel.cards);
+
+    if (this.modalStack) {
+      this.setWorldBlocked(true);
+      this.drawModalStack();
+    } else {
+      this.setWorldBlocked(false);
+    }
   }
 
   setInputHandler(handler: (event: GameInputEvent) => void): void {
@@ -115,6 +155,11 @@ export class PixiTableRenderer implements TableRendererPort {
   }
 
   destroy(): void {
+    if (this.modalAnimationFrameId !== null) {
+      cancelAnimationFrame(this.modalAnimationFrameId);
+      this.modalAnimationFrameId = null;
+    }
+
     if (!this.app) {
       return;
     }
@@ -123,7 +168,7 @@ export class PixiTableRenderer implements TableRendererPort {
     this.app = null;
     this.cardContainers.clear();
     this.activeDrag = null;
-    this.expandedStackRootId = null;
+    this.modalStack = null;
   }
 
   screenToTable(clientX: number, clientY: number): { x: number; y: number } {
@@ -198,13 +243,13 @@ export class PixiTableRenderer implements TableRendererPort {
     container.hitArea = new Rectangle(0, 0, card.width, card.height);
 
     const shadow = new Graphics();
-    shadow.roundRect(5, 7, card.width, card.height, 14).fill({ color: 0x000000, alpha: 0.16 });
+    shadow.roundRect(5, 7, card.width, card.height, 14).fill({ color: 0x000000, alpha: options.modal ? 0.25 : 0.16 });
 
     const graphics = new Graphics();
     graphics.roundRect(0, 0, card.width, card.height, 14).fill(background).stroke({
       color: border.color,
       alpha: border.alpha,
-      width: options.overlay ? 2 : 3,
+      width: options.modal ? 2 : 3,
     });
 
     const icon = new Text({
@@ -235,15 +280,11 @@ export class PixiTableRenderer implements TableRendererPort {
 
     container.addChild(shadow, graphics, icon, title);
 
-    if (card.stack && card.stack.size > 1 && !options.overlay) {
+    if (card.stack && card.stack.size > 1 && !options.modal) {
       this.drawStackCount(container, card);
-
-      if (card.stack.isTop) {
-        this.drawRevealButton(container, card);
-      }
     }
 
-    container.on("pointerdown", (event) => this.handleCardPointerDown(event, card, container, Boolean(options.overlay)));
+    container.on("pointerdown", (event) => this.handleCardPointerDown(event, card, container, Boolean(options.modal)));
 
     if (options.register ?? false) {
       this.cardContainers.set(card.id, container);
@@ -279,166 +320,279 @@ export class PixiTableRenderer implements TableRendererPort {
     container.addChild(badge);
   }
 
-  private drawRevealButton(container: Container, card: CardViewModel): void {
-    if (!card.stack) {
+  private drawStackRevealHandles(cards: CardViewModel[]): void {
+    if (this.modalStack) {
       return;
     }
 
-    const button = new Container();
-    button.position.set(card.width - 36, 8);
-    button.eventMode = "static";
-    button.cursor = "pointer";
-    button.hitArea = new Rectangle(0, 0, 28, 24);
+    const topStackCards = cards.filter((card) => card.stack?.isTop);
 
-    const background = new Graphics();
-    background.roundRect(0, 0, 28, 24, 8).fill({ color: 0xfff7dd, alpha: 0.96 }).stroke({
-      color: 0x4b3825,
-      width: 2,
-    });
+    for (const card of topStackCards) {
+      const button = new Container();
+      button.position.set(card.x + card.width + 10, card.y + 8);
+      button.zIndex = 200_000;
+      button.eventMode = "static";
+      button.cursor = "pointer";
+      button.hitArea = new Rectangle(0, 0, 34, 34);
 
-    const icon = new Text({
-      text: "☰",
-      style: {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: 15,
-        fontWeight: "900",
-        fill: 0x2b2118,
-      },
-    });
-    icon.anchor.set(0.5, 0.5);
-    icon.position.set(14, 12);
+      const background = new Graphics();
+      background.circle(17, 17, 17).fill({ color: 0xfff7dd, alpha: 0.98 }).stroke({
+        color: 0x4b3825,
+        width: 2,
+      });
 
-    button.addChild(background, icon);
-    button.on("pointerdown", (event) => {
-      event.stopPropagation();
-      this.expandedStackRootId = this.expandedStackRootId === card.stack?.rootId ? null : card.stack?.rootId ?? null;
+      const icon = new Text({
+        text: "☰",
+        style: {
+          fontFamily: "Inter, Arial, sans-serif",
+          fontSize: 15,
+          fontWeight: "900",
+          fill: 0x2b2118,
+        },
+      });
+      icon.anchor.set(0.5, 0.5);
+      icon.position.set(17, 17);
 
-      if (this.currentViewModel) {
-        this.update(this.currentViewModel);
-      }
-    });
+      button.addChild(background, icon);
+      button.on("pointerdown", (event) => {
+        stopEvent(event);
+        this.openStackModal(card.stack?.rootId ?? card.id);
+      });
 
-    container.addChild(button);
+      this.revealHandleLayer.addChild(button);
+    }
   }
 
-  private drawExpandedStack(viewModel: GameViewModel): void {
-    if (!this.expandedStackRootId) {
-      return;
-    }
-
-    const members = this.getStackMembers(viewModel, this.expandedStackRootId);
+  private openStackModal(rootId: CardId): void {
+    const viewModel = this.requireViewModel();
+    const members = this.getStackMembers(viewModel, rootId);
 
     if (members.length <= 1) {
       return;
     }
 
-    const root = members[0];
-    const panelWidth = Math.min(viewModel.table.width - 80, 56 + members.length * (root.width + 14));
-    const panelHeight = root.height + 112;
-    const panelX = clamp(root.x + 160, 40, viewModel.table.width - panelWidth - 40);
-    const panelY = clamp(root.y - 36, 40, viewModel.table.height - panelHeight - 40);
+    if (this.modalAnimationFrameId !== null) {
+      cancelAnimationFrame(this.modalAnimationFrameId);
+      this.modalAnimationFrameId = null;
+    }
 
-    const panel = new Container();
-    panel.position.set(panelX, panelY);
-    panel.zIndex = 1_000_000;
-    panel.eventMode = "static";
-    panel.hitArea = new Rectangle(0, 0, panelWidth, panelHeight);
+    const centerX = viewModel.table.width / 2;
+    const centerY = viewModel.table.height / 2;
+    const gap = Math.min(142, Math.max(92, 620 / Math.max(1, members.length - 1)));
+    const startX = centerX - ((members.length - 1) * gap) / 2;
 
-    const background = new Graphics();
-    background.roundRect(0, 0, panelWidth, panelHeight, 18).fill({ color: 0xfff1ce, alpha: 0.96 }).stroke({
-      color: 0x4b3825,
-      width: 3,
-    });
+    this.revealHandleLayer.removeChildren();
+    this.modalLayer.removeChildren();
+    this.modalScrimLayer.removeChildren();
 
-    const header = new Text({
-      text: `Стопка ×${members.length}`,
-      style: {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: 20,
-        fontWeight: "900",
-        fill: 0x2b2118,
-      },
-    });
-    header.position.set(18, 14);
+    this.modalStack = {
+      rootId,
+      progress: 0,
+      phase: "opening",
+      cards: members.map((card, index) => {
+        const container = this.createCardContainer(card, {
+          x: card.x,
+          y: card.y,
+          z: 1_000_000 + index,
+          modal: true,
+        });
+        const normalized = members.length === 1 ? 0 : index / (members.length - 1) - 0.5;
 
-    const hint = new Text({
-      text: "Перетащи карту из стопки наружу",
-      style: {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: 13,
-        fontWeight: "700",
-        fill: 0x6a5846,
-      },
-    });
-    hint.position.set(18, 42);
+        return {
+          card,
+          container,
+          startX: card.x,
+          startY: card.y,
+          targetX: startX + index * gap,
+          targetY: centerY - 72 - Math.abs(normalized) * 38,
+          targetRotation: normalized * 0.24,
+          targetScale: 1.16,
+        };
+      }),
+    };
 
-    const close = new Container();
-    close.position.set(panelWidth - 36, 12);
-    close.eventMode = "static";
-    close.cursor = "pointer";
-    close.hitArea = new Rectangle(0, 0, 24, 24);
+    this.setWorldBlocked(true);
+    this.animateModalTo(1);
+  }
 
-    const closeBackground = new Graphics();
-    closeBackground.roundRect(0, 0, 24, 24, 8).fill({ color: 0x2b2118, alpha: 0.12 });
+  private closeStackModal(): void {
+    if (!this.modalStack) {
+      return;
+    }
 
-    const closeIcon = new Text({
-      text: "×",
-      style: {
-        fontFamily: "Inter, Arial, sans-serif",
-        fontSize: 18,
-        fontWeight: "900",
-        fill: 0x2b2118,
-      },
-    });
-    closeIcon.anchor.set(0.5, 0.5);
-    closeIcon.position.set(12, 11);
-    close.addChild(closeBackground, closeIcon);
-    close.on("pointerdown", (event) => {
-      event.stopPropagation();
-      this.expandedStackRootId = null;
+    this.modalStack.phase = "closing";
+    this.animateModalTo(0, () => {
+      this.clearModalStack();
 
       if (this.currentViewModel) {
         this.update(this.currentViewModel);
       }
     });
-
-    panel.addChild(background, header, hint, close);
-    this.overlayLayer.addChild(panel);
-
-    members.forEach((card, index) => {
-      const cardCopy = this.createCardContainer(card, {
-        x: panelX + 20 + index * (card.width + 12),
-        y: panelY + 72,
-        z: 1_000_010 + index,
-        overlay: true,
-      });
-      this.overlayLayer.addChild(cardCopy);
-    });
   }
 
-  private handleCardPointerDown = (event: unknown, card: CardViewModel, container: Container, fromOverlay: boolean): void => {
+  private clearModalStack(): void {
+    if (this.modalAnimationFrameId !== null) {
+      cancelAnimationFrame(this.modalAnimationFrameId);
+      this.modalAnimationFrameId = null;
+    }
+
+    this.modalStack = null;
+    this.modalLayer.removeChildren();
+    this.modalScrimLayer.removeChildren();
+    this.setWorldBlocked(false);
+  }
+
+  private setWorldBlocked(blocked: boolean): void {
+    this.worldLayer.alpha = blocked ? 0.42 : 1;
+  }
+
+  private animateModalTo(target: 0 | 1, onDone?: () => void): void {
+    if (!this.modalStack) {
+      return;
+    }
+
+    if (this.modalAnimationFrameId !== null) {
+      cancelAnimationFrame(this.modalAnimationFrameId);
+      this.modalAnimationFrameId = null;
+    }
+
+    const startedAt = performance.now();
+    const durationMs = 190;
+    const initial = this.modalStack.progress;
+
+    const tick = (timestamp: number): void => {
+      if (!this.modalStack) {
+        return;
+      }
+
+      const raw = Math.min(1, (timestamp - startedAt) / durationMs);
+      const eased = 1 - Math.pow(1 - raw, 3);
+      this.modalStack.progress = initial + (target - initial) * eased;
+      this.drawModalStack();
+
+      if (raw < 1) {
+        this.modalAnimationFrameId = requestAnimationFrame(tick);
+        return;
+      }
+
+      this.modalStack.progress = target;
+      this.modalStack.phase = target === 1 ? "open" : "closing";
+      this.modalAnimationFrameId = null;
+      this.drawModalStack();
+      onDone?.();
+    };
+
+    this.modalAnimationFrameId = requestAnimationFrame(tick);
+  }
+
+  private drawModalStack(): void {
+    this.modalLayer.removeChildren();
+    this.modalScrimLayer.removeChildren();
+
+    if (!this.modalStack) {
+      return;
+    }
+
+    const viewModel = this.requireViewModel();
+    const scrim = new Graphics();
+    scrim.rect(0, 0, viewModel.table.width, viewModel.table.height).fill({ color: 0xbababa, alpha: 0.34 });
+    scrim.rect(0, 0, viewModel.table.width, viewModel.table.height).fill({ color: 0x000000, alpha: 0.30 });
+    scrim.eventMode = "static";
+    scrim.hitArea = new Rectangle(0, 0, viewModel.table.width, viewModel.table.height);
+    scrim.on("pointerdown", (event) => {
+      stopEvent(event);
+      this.closeStackModal();
+    });
+    this.modalScrimLayer.addChild(scrim);
+
+    const modal = this.modalStack;
+    const progress = modal.progress;
+
+    for (const item of modal.cards) {
+      const x = lerp(item.startX, item.targetX, progress);
+      const y = lerp(item.startY, item.targetY, progress);
+      item.container.position.set(x, y);
+      item.container.rotation = item.targetRotation * progress;
+      item.container.scale.set(1 + (item.targetScale - 1) * progress);
+      item.container.alpha = 0.88 + 0.12 * progress;
+      item.container.zIndex = 1_000_000 + item.card.z;
+      this.modalLayer.addChild(item.container);
+    }
+
+    this.drawModalCloseHandle(modal);
+  }
+
+  private drawModalCloseHandle(modal: ModalStackState): void {
+    if (modal.cards.length === 0 || modal.progress < 0.72) {
+      return;
+    }
+
+    const right = Math.max(...modal.cards.map((item) => item.container.x + item.card.width * item.container.scale.x));
+    const top = Math.min(...modal.cards.map((item) => item.container.y));
+    const button = new Container();
+    button.position.set(right + 28, top - 6);
+    button.zIndex = 1_100_000;
+    button.eventMode = "static";
+    button.cursor = "pointer";
+    button.hitArea = new Rectangle(0, 0, 36, 36);
+
+    const background = new Graphics();
+    background.circle(18, 18, 18).fill({ color: 0xfff7dd, alpha: 0.98 }).stroke({
+      color: 0x4b3825,
+      width: 2,
+    });
+
+    const icon = new Text({
+      text: "×",
+      style: {
+        fontFamily: "Inter, Arial, sans-serif",
+        fontSize: 22,
+        fontWeight: "900",
+        fill: 0x2b2118,
+      },
+    });
+    icon.anchor.set(0.5, 0.5);
+    icon.position.set(18, 17);
+
+    button.addChild(background, icon);
+    button.on("pointerdown", (event) => {
+      stopEvent(event);
+      this.closeStackModal();
+    });
+
+    this.modalLayer.addChild(button);
+  }
+
+  private handleCardPointerDown = (event: unknown, card: CardViewModel, container: Container, fromModal: boolean): void => {
     if (!this.currentViewModel) {
       return;
     }
 
+    if (this.modalStack && !fromModal) {
+      return;
+    }
+
+    stopEvent(event);
+
     const point = this.eventToTablePoint(event);
-    const dragCardId = fromOverlay ? card.id : card.stack?.rootId ?? card.id;
-    const stackMemberIds = !fromOverlay && card.stack ? card.stack.memberIds : [card.id];
+    const dragCardId = fromModal ? card.id : card.stack?.rootId ?? card.id;
+    const stackMemberIds = !fromModal && card.stack ? card.stack.memberIds : [card.id];
     const draggedContainers = stackMemberIds
       .map((cardId) => this.cardContainers.get(cardId))
       .filter((candidate): candidate is Container => candidate !== undefined);
 
-    const containers = fromOverlay || draggedContainers.length === 0 ? [container] : draggedContainers;
+    const containers = fromModal || draggedContainers.length === 0 ? [container] : draggedContainers;
 
     this.activeDrag = {
       cardId: dragCardId,
       excludedCardIds: new Set(stackMemberIds),
       pointerStartX: point.x,
       pointerStartY: point.y,
+      fromModal,
       containers: containers.map((candidate, index) => {
-        candidate.alpha = 0.92;
+        candidate.alpha = 0.94;
         candidate.cursor = "grabbing";
-        candidate.zIndex = 100_000 + index;
+        candidate.zIndex = 1_200_000 + index;
         this.dragLayer.addChild(candidate);
 
         return {
@@ -481,10 +635,14 @@ export class PixiTableRenderer implements TableRendererPort {
     const primary = activeDrag.containers[0]?.container;
     const dropX = primary?.x ?? point.x;
     const dropY = primary?.y ?? point.y;
-    const targetCard = this.findTopCardAt(point.x, point.y, activeDrag.excludedCardIds);
+    const targetCard = activeDrag.fromModal ? null : this.findTopCardAt(point.x, point.y, activeDrag.excludedCardIds);
     const targetZone = targetCard ? null : this.findZoneAt(point.x, point.y);
 
     this.activeDrag = null;
+
+    if (activeDrag.fromModal) {
+      this.clearModalStack();
+    }
 
     if (targetCard) {
       this.inputHandler({
@@ -513,6 +671,10 @@ export class PixiTableRenderer implements TableRendererPort {
   };
 
   private findTopCardAt(x: number, y: number, excludedCardIds: Set<CardId>): CardViewModel | null {
+    if (this.modalStack) {
+      return null;
+    }
+
     const viewModel = this.requireViewModel();
 
     return [...viewModel.cards]
@@ -593,10 +755,11 @@ function parseColor(value: string): ParsedColor {
   return fallback;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  if (max < min) {
-    return min;
-  }
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
+}
 
-  return Math.min(max, Math.max(min, value));
+function stopEvent(event: unknown): void {
+  const maybeEvent = event as { stopPropagation?: () => void };
+  maybeEvent.stopPropagation?.();
 }
