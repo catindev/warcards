@@ -10,6 +10,15 @@ export function createInitialState(recipe: GameRecipe, options: CreateInitialSta
   validateRecipe(recipe);
 
   const now = options.now ?? new Date().toISOString();
+  const cards: Record<CardId, CardInstance> = {};
+
+  for (const card of recipe.initialState.cards) {
+    cards[card.id] = {
+      id: card.id,
+      defId: card.defId,
+      location: cloneLocation(card.location),
+    };
+  }
 
   return {
     session: {
@@ -22,16 +31,7 @@ export function createInitialState(recipe: GameRecipe, options: CreateInitialSta
     table: {
       id: recipe.table.id,
     },
-    cards: Object.fromEntries(
-      recipe.initialState.cards.map((card) => [
-        card.id,
-        {
-          id: card.id,
-          defId: card.defId,
-          location: cloneLocation(card.location),
-        } satisfies CardInstance,
-      ]),
-    ),
+    cards,
   };
 }
 
@@ -98,8 +98,12 @@ export function restoreState(recipe: GameRecipe, state: GameState): GameState {
 
     repairedCards[card.id] = {
       ...card,
-      location: repairLocation(recipe, state, card.location),
+      location: cloneLocation(card.location),
     };
+  }
+
+  for (const card of Object.values(repairedCards)) {
+    card.location = repairLocation(recipe, repairedCards, card.location);
   }
 
   return {
@@ -132,12 +136,12 @@ function moveCard(state: GameState, cardId: CardId, location: CardLocation, now:
   };
 }
 
-function repairLocation(recipe: GameRecipe, state: GameState, location: CardLocation): CardLocation {
+function repairLocation(recipe: GameRecipe, cards: Record<CardId, CardInstance>, location: CardLocation): CardLocation {
   if (location.kind === "zone" && !hasZoneDefinition(recipe, location.zoneId)) {
     return { kind: "table", x: location.x, y: location.y, z: location.z };
   }
 
-  if (location.kind === "stack" && !state.cards[location.parentCardId]) {
+  if (location.kind === "stack" && !cards[location.parentCardId]) {
     return { kind: "table", x: 80, y: 80, z: location.z };
   }
 
