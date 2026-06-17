@@ -226,6 +226,16 @@ export interface CardViewModel {
   draggable: boolean;
   droppable: boolean;
   style: ViewStyle;
+  stack?: CardStackViewModel;
+}
+
+export interface CardStackViewModel {
+  rootId: CardId;
+  memberIds: CardId[];
+  size: number;
+  index: number;
+  isRoot: boolean;
+  isTop: boolean;
 }
 
 export interface ViewStyle {
