@@ -1,6 +1,8 @@
 import type { CardId, CardInstance, CardLocation, GameInputEvent, GameRecipe, GameState, StackLocation } from "./types";
 import { hasCardDefinition, hasZoneDefinition, validateRecipe } from "./recipe";
 
+const AUTO_STACK_RADIUS = 95;
+
 export interface CreateInitialStateOptions {
   sessionId?: string;
   now?: string;
@@ -41,26 +43,31 @@ export function applyInputEvent(state: GameState, recipe: GameRecipe, event: Gam
     case "card.drag_started":
       return state;
 
-    case "card.dropped_on_empty":
-      return moveCard(state, event.cardId, {
+    case "card.dropped_on_empty": {
+      const moved = moveCard(state, event.cardId, {
         kind: "table",
         x: event.x,
         y: event.y,
         z: nextTopZ(state),
       }, now);
 
+      return autoStackNearbyIdentical(moved, event.cardId, now);
+    }
+
     case "card.dropped_on_zone": {
       if (!hasZoneDefinition(recipe, event.zoneId)) {
         return state;
       }
 
-      return moveCard(state, event.cardId, {
+      const moved = moveCard(state, event.cardId, {
         kind: "zone",
         zoneId: event.zoneId,
         x: event.x,
         y: event.y,
         z: nextTopZ(state),
       }, now);
+
+      return autoStackNearbyIdentical(moved, event.cardId, now);
     }
 
     case "card.dropped_on_card": {
@@ -142,6 +149,36 @@ function moveCard(state: GameState, cardId: CardId, location: CardLocation, now:
   };
 }
 
+function autoStackNearbyIdentical(state: GameState, cardId: CardId, now: string): GameState {
+  const card = state.cards[cardId];
+
+  if (!card || card.location.kind === "stack") {
+    return state;
+  }
+
+  const cardPosition = locationPoint(card.location);
+  const candidate = Object.values(state.cards)
+    .filter((other) => other.id !== card.id)
+    .filter((other) => other.defId === card.defId)
+    .filter((other) => other.location.kind !== "stack")
+    .filter((other) => isSameLooseLocation(card.location, other.location))
+    .map((other) => ({ other, distance: distance(cardPosition, locationPoint(other.location)) }))
+    .filter(({ distance }) => distance <= AUTO_STACK_RADIUS)
+    .sort((a, b) => a.distance - b.distance || a.other.id.localeCompare(b.other.id))[0]?.other;
+
+  if (!candidate) {
+    return state;
+  }
+
+  return moveCard(state, cardId, {
+    kind: "stack",
+    parentCardId: candidate.id,
+    offsetX: 18,
+    offsetY: 22,
+    z: nextTopZ(state),
+  }, now);
+}
+
 function repairLocation(recipe: GameRecipe, cards: Record<CardId, CardInstance>, location: CardLocation): CardLocation {
   if (location.kind === "zone" && !hasZoneDefinition(recipe, location.zoneId)) {
     return { kind: "table", x: location.x, y: location.y, z: location.z };
@@ -200,6 +237,30 @@ function nextTopZ(state: GameState): number {
 
 function cloneLocation(location: CardLocation): CardLocation {
   return { ...location };
+}
+
+function locationPoint(location: CardLocation): { x: number; y: number } {
+  if (location.kind === "stack") {
+    return { x: 0, y: 0 };
+  }
+
+  return { x: location.x, y: location.y };
+}
+
+function isSameLooseLocation(a: CardLocation, b: CardLocation): boolean {
+  if (a.kind === "table" && b.kind === "table") {
+    return true;
+  }
+
+  if (a.kind === "zone" && b.kind === "zone") {
+    return a.zoneId === b.zoneId;
+  }
+
+  return false;
+}
+
+function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function createId(prefix: string): string {
